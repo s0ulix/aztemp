@@ -29,7 +29,7 @@
         },
         "copies": {
            "type": "int",
-           "defaultValue":3,
+           "defaultValue":2,
            "metadata": {
                 "description": "description"
             }
@@ -39,8 +39,7 @@
         "baseName": "[if(equals(parameters('baseName'),'auto'),concat('ine',uniqueString(resourceGroup().id)),parameters('baseName'))]",
         "baseNames": [
             "[concat(variables('baseName'),'-web1')]",
-            "[concat(variables('baseName'),'-web2')]",
-            "[concat(variables('baseName'),'-ftp')]"
+            "[concat(variables('baseName'),'-web2')]"
         ],
         "copies": "[parameters('copies')]",
         "password": "[if(equals(parameters('password'),'auto'),concat('Pa55w.rd!',uniqueString(resourceGroup().id)),parameters('password'))]",
