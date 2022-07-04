@@ -1,0 +1,215 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "password": {
+            "type": "securestring",
+            "defaultValue": "auto",
+            "metadata": {
+                "description": "VM Password"
+            }
+        },
+        "baseName": {
+            "type": "string",
+            "defaultValue": "auto",
+            "metadata": {
+                "description": "Base name for resources"
+            }
+        }
+    },
+    "variables": {
+        "baseName": "[if(equals(parameters('baseName'),'auto'),concat('ine',uniqueString(resourceGroup().id)),parameters('baseName'))]",
+        "password": "[if(equals(parameters('password'),'auto'),concat('Pa55w.rd!',uniqueString(resourceGroup().id)),parameters('password'))]",
+        "adminName": "student",
+        "vmName": "[concat(variables('baseName'),'-vm')]",
+        "osDiskName": "[concat(variables('baseName'),'-vm')]",
+        "nicName": "[concat(variables('baseName'),'-nic')]",
+        "pipName": "[concat(variables('baseName'),'-pip')]",
+        "vnetName": "[concat(variables('baseName'),'-vnet')]",
+        "bastionName": "[concat(variables('baseName'),'-bastion')]",
+        "bastionPipName": "[concat(variables('baseName'),'-bastion-pip')]",
+        "boSubnetName": "default",
+        "bastionSubnetName": "AzureBastionSubnet",
+        "gatewaySubnetName": "GatewaySubnet",
+        "vmSize": "Standard_D2S_V4",
+        "pipId": "[resourceId('Microsoft.Network/publicIPAddresses',variables('pipName'))]",
+        "bastionPipId": "[resourceId('Microsoft.Network/publicIPAddresses',variables('bastionPipName'))]",
+        "vnetId": "[resourceId('Microsoft.Network/virtualNetworks',variables('vnetName'))]",
+        "nicId": "[resourceId('Microsoft.Network/networkInterfaces',variables('nicName'))]",
+        "boSubnetId": "[resourceId('Microsoft.Network/virtualNetworks/Subnets',variables('vnetName'),variables('boSubnetName'))]",
+        "bastionSubnetId": "[resourceId('Microsoft.Network/virtualNetworks/Subnets',variables('vnetName'),variables('bastionSubnetName'))]",
+        "imageReference": {
+            "publisher": "Canonical",
+            "offer": "UbuntuServer",
+            "sku": "18.04-LTS",
+            "version": "latest"
+        }
+    },
+    "resources": [
+         {
+            "name": "[variables('pipName')]",
+            "type": "Microsoft.Network/publicIPAddresses",
+            "apiVersion": "2018-08-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+                "displayName": "OP public IP"
+            },
+            "sku": {
+                "name": "Standard"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Static"
+            }
+        },
+        {
+            "name": "[variables('vnetName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2018-08-01",
+            "location": "[resourceGroup().location]",
+            "tags": {
+                "displayName": "OP virtual network"
+            },
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.4.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('boSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.4.0.0/24"
+                        }
+                    },
+                    {
+                        "name": "[variables('bastionSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.4.255.0/28"
+                        }
+                    },
+                    {
+                        "name": "[variables('gatewaySubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.4.255.16/28"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[variables('nicName')]",
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2018-08-01",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[variables('pipId')]",
+                "[variables('vnetId')]"
+            ],
+            "tags": {
+                "displayName": "OP NIC"
+            },
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipConfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[variables('pipId')]"
+                            },
+                            "subnet": {
+                                "id": "[variables('boSubnetId')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[variables('vmName')]",
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2017-03-30",
+            "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[variables('nicId')]"
+            ],
+            "tags": {
+                "displayName": "OP VM"
+            },
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[variables('vmSize')]"
+                },
+                "osProfile": {
+                    "computerName": "[variables('baseName')]",
+                    "adminUsername": "[variables('adminName')]",
+                    "adminPassword": "[variables('password')]"
+                },
+                "storageProfile": {
+                    "imageReference": "[variables('imageReference')]",
+                    "osDisk": {
+                        "name": "[variables('osDiskName')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage",
+                        "managedDisk":{
+                            "storageAccountType":"Standard_LRS"
+                        }
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[variables('nicId')]"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "apiVersion": "2019-02-01",
+            "type": "Microsoft.Network/publicIpAddresses",
+            "name": "[variables('bastionPipName')]",
+            "location": "[resourceGroup().location]",
+            "tags":{
+                "displayName":"OP Bastion PIP"
+            },
+            "sku": {
+                "name": "Standard"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Static"
+            }
+        },
+        {
+            "apiVersion": "2018-10-01",
+            "type": "Microsoft.Network/bastionHosts",
+            "name": "[variables('bastionName')]",
+             "tags":{
+                "displayName":"OP Bastion Host"
+            },
+           "location": "[resourceGroup().location]",
+            "dependsOn": [
+                "[variables('bastionPipId')]",
+                "[variables('vnetId')]"
+            ],
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "IpConf",
+                        "properties": {
+                            "subnet": {
+                                "id": "[variables('bastionSubnetId')]"
+                            },
+                            "publicIPAddress": {
+                                "id": "[variables('bastionPipId')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        }
+    ],
+    "outputs": {
+    }
+}

@@ -1,0 +1,276 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "password": {
+            "type": "securestring",
+            "defaultValue": "auto",
+            "metadata": {
+                "description": "VM Password"
+            }
+        },
+        "baseName": {
+            "type": "string",
+            "defaultValue": "auto",
+            "metadata": {
+                "description": "Base name for resources"
+            }
+        },
+        "location": {
+           "type": "string",
+           "metadata": {
+                "description": "Option to set the location for deployment"
+            },
+            "defaultValue":"auto"
+        },
+        "bastion":{
+            "type":"bool",
+            "defaultValue":false
+        },
+        "copies": {
+           "type": "int",
+           "defaultValue":3,
+           "metadata": {
+                "description": "description"
+            }
+        }
+    },
+    "variables": {
+        "baseName": "[if(equals(parameters('baseName'),'auto'),concat('ine',uniqueString(resourceGroup().id)),parameters('baseName'))]",
+        "baseNames": [
+            "[concat(variables('baseName'),'-web1')]",
+            "[concat(variables('baseName'),'-web2')]",
+            "[concat(variables('baseName'),'-ftp')]"
+        ],
+        "copies": "[parameters('copies')]",
+        "password": "[if(equals(parameters('password'),'auto'),concat('Pa55w.rd!',uniqueString(resourceGroup().id)),parameters('password'))]",
+        "adminName": "student",
+        "vnetName": "[concat(variables('baseName'),'-vnet')]",
+        "bastionName": "[concat(variables('baseName'),'-bastion')]",
+        "bastionPipName": "[concat(variables('baseName'),'-bastion-pip')]",
+        "boSubnetName": "edge",
+        "bastionSubnetName": "AzureBastionSubnet",
+        "agSubnetName":"AppGateway",
+        "vmSize": "Standard_D2S_V4",
+        "bastionPipId": "[resourceId('Microsoft.Network/publicIPAddresses',variables('bastionPipName'))]",
+        "vnetId": "[resourceId('Microsoft.Network/virtualNetworks',variables('vnetName'))]",
+        "boSubnetId": "[resourceId('Microsoft.Network/virtualNetworks/Subnets',variables('vnetName'),variables('boSubnetName'))]",
+        "bastionSubnetId": "[resourceId('Microsoft.Network/virtualNetworks/Subnets',variables('vnetName'),variables('bastionSubnetName'))]",
+        "imageReference": {
+            "publisher": "Canonical",
+            "offer": "UbuntuServer",
+            "sku": "18.04-LTS",
+            "version": "latest"
+        },
+        "location":"[if(equals(parameters('location'),'auto'),resourceGroup().location,parameters('location'))]"
+    },
+    "resources": [
+        {
+            "name": "[concat(variables('baseNames')[copyIndex()],'-pip')]",
+            "type": "Microsoft.Network/publicIPAddresses",
+            "copy": {
+                "name": "pipCopy",
+                "count": "[variables('copies')]"
+            },
+            "apiVersion": "2018-08-01",
+            "location": "[variables('location')]",
+            "tags": {
+                "displayName": "Public public IP"
+            },
+            "sku": {
+                "name": "Standard"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Static"
+            }
+        },
+        {
+            "name": "[variables('vnetName')]",
+            "type": "Microsoft.Network/virtualNetworks",
+            "apiVersion": "2018-08-01",
+            "location": "[variables('location')]",
+            "tags": {
+                "displayName": "Public virtual network"
+            },
+            "properties": {
+                "addressSpace": {
+                    "addressPrefixes": [
+                        "10.2.0.0/16"
+                    ]
+                },
+                "subnets": [
+                    {
+                        "name": "[variables('boSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.2.0.0/24"
+                        }
+                    },
+                    {
+                        "name": "[variables('agSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.2.255.32/27"
+                        }
+                    },
+                    {
+                        "name": "[variables('bastionSubnetName')]",
+                        "properties": {
+                            "addressPrefix": "10.2.255.0/27"
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[concat(variables('baseNames')[copyIndex()],'-nic')]",
+            "copy": {
+                "name": "nicCopy",
+                "count": "[variables('copies')]"
+            },
+            "type": "Microsoft.Network/networkInterfaces",
+            "apiVersion": "2018-08-01",
+            "location": "[variables('location')]",
+            "dependsOn": [
+                "pipCopy",
+                "[variables('vnetId')]"
+            ],
+            "tags": {
+                "displayName": "Public NIC"
+            },
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "ipConfig1",
+                        "properties": {
+                            "privateIPAllocationMethod": "Dynamic",
+                            "publicIPAddress": {
+                                "id": "[resourceId('Microsoft.Network/publicIPAddresses',concat(variables('baseNames')[copyIndex()],'-pip'))]"
+                            },
+                            "subnet": {
+                                "id": "[variables('boSubnetId')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[concat(variables('baseNames')[copyIndex()],'-vm')]",
+            "copy": {
+                "name": "vmCopy",
+                "count": "[variables('copies')]"
+            },
+            "type": "Microsoft.Compute/virtualMachines",
+            "apiVersion": "2017-03-30",
+            "location": "[variables('location')]",
+            "dependsOn": [
+                "nicCopy"
+            ],
+            "tags": {
+                "displayName": "Public VM"
+            },
+            "properties": {
+                "hardwareProfile": {
+                    "vmSize": "[variables('vmSize')]"
+                },
+                "osProfile": {
+                    "computerName": "[variables('baseNames')[copyIndex()]]",
+                    "adminUsername": "[variables('adminName')]",
+                    "adminPassword": "[variables('password')]"
+                },
+                "storageProfile": {
+                    "imageReference": "[variables('imageReference')]",
+                    "osDisk": {
+                        "name": "[concat(variables('baseNames')[copyIndex()],'-osdisk')]",
+                        "caching": "ReadWrite",
+                        "createOption": "FromImage",
+                        "managedDisk": {
+                            "storageAccountType": "Standard_LRS"
+                        }
+                    }
+                },
+                "networkProfile": {
+                    "networkInterfaces": [
+                        {
+                            "id": "[resourceId('Microsoft.Network/networkInterfaces',concat(variables('baseNames')[copyIndex()],'-nic'))]"
+                        }
+                    ]
+                }
+            }
+        },
+        {
+            "apiVersion": "2019-02-01",
+            "type": "Microsoft.Network/publicIpAddresses",
+            "name": "[variables('bastionPipName')]",
+            "location": "[variables('location')]",
+            "condition":"[parameters('bastion')]",
+            "tags": {
+                "displayName": "Public Bastion PIP"
+            },
+            "sku": {
+                "name": "Standard"
+            },
+            "properties": {
+                "publicIPAllocationMethod": "Static"
+            }
+        },
+        {
+            "apiVersion": "2018-10-01",
+            "type": "Microsoft.Network/bastionHosts",
+            "name": "[variables('bastionName')]",
+            "tags": {
+                "displayName": "Public Bastion Host"
+            },
+            "condition":"[parameters('bastion')]",
+            "location": "[variables('location')]",
+            "dependsOn": [
+                "[variables('bastionPipId')]",
+                "[variables('vnetId')]"
+            ],
+            "properties": {
+                "ipConfigurations": [
+                    {
+                        "name": "IpConf",
+                        "properties": {
+                            "subnet": {
+                                "id": "[variables('bastionSubnetId')]"
+                            },
+                            "publicIPAddress": {
+                                "id": "[variables('bastionPipId')]"
+                            }
+                        }
+                    }
+                ]
+            }
+        },
+        {
+            "name": "[concat(variables('baseNames')[copyIndex()],'-vm/customScript1')]",
+            "type": "Microsoft.Compute/virtualMachines/extensions",
+            "copy": {
+                "name":"scriptCopy",
+                "count":"[variables('copies')]"
+            },
+            "apiVersion": "2018-06-01",
+            "location": "[variables('location')]",
+            "tags": {
+                "displayName": "Deploy simple web app"
+            },
+            "dependsOn": [
+                "vmCopy"
+            ],
+            "properties": {
+                "publisher": "Microsoft.OSTCExtensions",
+                "type": "CustomScriptForLinux",
+                "typeHandlerVersion": "1.4",
+                "autoUpgradeMinorVersion": true,
+                "settings": {
+                    "fileUris": [
+                        "https://inedemoassets.blob.core.windows.net/taskfiles/azure/webserverinstall.sh"
+                    ],
+                    "commandToExecute": "sh webserverinstall.sh"
+                }
+            }
+        }
+    ],
+    "outputs": {
+    }
+}
